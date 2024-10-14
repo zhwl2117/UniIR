@@ -3,6 +3,9 @@ This module contains the code for indexing and retrieval using FAISS based on th
 """
 
 import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "4,5"
+import sys
+sys.path.append("/home/wlzhong/project/uniir/src")
 import argparse
 from omegaconf import OmegaConf
 from collections import defaultdict
@@ -710,15 +713,15 @@ def run_hard_negative_mining(config):
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="FAISS Pipeline")
-    parser.add_argument("--uniir_dir", type=str, default="/data/UniIR")
-    parser.add_argument("--mbeir_data_dir", type=str, default="/data/UniIR/mbeir_data")
-    parser.add_argument("--config_path", default="config.yaml", help="Path to the config file.")
+    parser.add_argument("--uniir_dir", type=str, default="/data/wlzhong/dataset/mbeir/e5v_embed/")
+    parser.add_argument("--mbeir_data_dir", type=str, default="/data/wlzhong/dataset/mbeir/")
+    parser.add_argument("--config_path", default="/home/wlzhong/project/uniir/src/models/uniir_e5v/configs_scripts/eval/inbatch/index.yaml", help="Path to the config file.")
     parser.add_argument(
         "--query_embedder_config_path",
         default="",
         help="Path to the query embedder config file. Used when retrieving candidates with complement modalities in raw_retrieval mode.",
     )
-    parser.add_argument("--enable_create_index", action="store_true", help="Enable create index")
+    parser.add_argument("--enable_create_index", default=True, help="Enable create index")
     parser.add_argument(
         "--enable_hard_negative_mining",
         action="store_true",

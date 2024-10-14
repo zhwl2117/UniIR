@@ -3,7 +3,9 @@ This module generates embeddings for MBEIR with multiple GPUs.
 """
 
 import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "4,5"
 import sys
+sys.path.append("/home/wlzhong/project/uniir/src")
 import argparse
 from omegaconf import OmegaConf
 import tqdm
@@ -30,6 +32,7 @@ from data.mbeir_dataset import (
     Mode,
 )
 from transformers import LlavaNextForConditionalGeneration, LlavaNextProcessor
+from tqdm import tqdm
 
 
 @torch.no_grad()
@@ -44,7 +47,7 @@ def generate_embeds_and_ids_for_dataset_with_gather(model, data_loader, device, 
         initial_threads_per_process = total_cores // world_size
         torch.set_num_threads(initial_threads_per_process)
         data_loader = tqdm.tqdm(data_loader, desc=f"Rank {rank}")
-    for batch in data_loader:
+    for batch in tqdm(data_loader, desc="Embedding"):
         # # Used in combination with pin_memory=True
         # for key, value in batch.items():
         #     if isinstance(value, torch.Tensor):
@@ -285,7 +288,7 @@ def generate_embeds_for_config(model, processor, config):
                     print_config=print_config,
                 )
                 collator = MBEIRMLLMCandidatePoolCollator(
-                    tokenizer=processor,
+                    processor=processor,
                     image_size=image_size,
                 )
             else:  # "train" or "val" or "test"
@@ -315,9 +318,8 @@ def generate_embeds_for_config(model, processor, config):
                     print_config=print_config,
                 )
                 collator = MBEIRMLLMEVALCollator(
-                    tokenizer=processor,
+                    processor=processor,
                     image_size=image_size,
-                    mode=mode,
                 )
 
             # Config for data loader
@@ -359,7 +361,7 @@ def generate_embeds_for_config(model, processor, config):
             embedding_list, id_list = generate_embeds_and_ids_for_dataset_with_gather(
                 model,
                 data_loader,
-                device=config.dist_config.gpu_id,
+                device="cuda",
                 use_fp16=config.embed_config.use_fp16,
             )
 
@@ -493,10 +495,10 @@ def main(config):
     model.eval()
 
     # Enable distributed data parallel
-    model = model.to(config.dist_config.gpu_id)
-    if config.dist_config.distributed_mode:
-        model = DDP(model, device_ids=[config.dist_config.gpu_id])
-    print(f"Model is set up on GPU {config.dist_config.gpu_id}.")
+    # model = model.to(config.dist_config.gpu_id)
+    # if config.dist_config.distributed_mode:
+    #     model = DDP(model, device_ids=[config.dist_config.gpu_id])
+    # print(f"Model is set up on GPU {config.dist_config.gpu_id}.")
 
     # Generate embeddings
     generate_embeds_for_config(
@@ -521,15 +523,6 @@ if __name__ == "__main__":
     # Parse arguments to config
     config.uniir_dir = args.uniir_dir
     config.mbeir_data_dir = args.mbeir_data_dir
-
-    # Initialize distributed mode
-    args.dist_url = config.dist_config.dist_url  # Note: The use of args is a historical artifact :(
-    dist_utils.init_distributed_mode(args)
-    config.dist_config.gpu_id = args.gpu
-    config.dist_config.distributed_mode = args.distributed
-
-    if dist_utils.is_main_process():
-        print(OmegaConf.to_yaml(config, sort_keys=False))
 
     main(config)
 

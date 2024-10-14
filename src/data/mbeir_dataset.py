@@ -14,6 +14,7 @@ from PIL import Image
 from collections import defaultdict
 from torch.utils.data import Dataset
 from typeguard import typechecked
+from torch.nn.utils.rnn import pad_sequence
 
 # Project files
 from data.preprocessing.utils import (
@@ -33,7 +34,6 @@ class MBEIRDatasetBase(Dataset):
     def __init__(
         self,
         mbeir_data_dir,  # Root directory of the MBEIR dataset
-        img_preprocess_fn,
     ):
         """
         Initialize the MBEIRDataset.
@@ -45,7 +45,7 @@ class MBEIRDatasetBase(Dataset):
         - training (bool): Indicator if the dataset is for training.
         """
         self.mbeir_data_dir = mbeir_data_dir
-        self.img_preprocess_fn = img_preprocess_fn or (lambda x: x)
+        self.img_preprocess_fn = lambda x: x
 
     def __len__(self):
         raise NotImplementedError("This method should be implemented in derived classes.")
@@ -118,7 +118,6 @@ class MBEIRMainDataset(MBEIRDatasetBase):
         query_data_path,  # Relate path to the query data
         cand_pool_path,  # Relate path to the candidate pool data
         query_instruct_path,  # Relate path to the query instructions
-        img_preprocess_fn,
         mode=Mode.TRAIN,
         enable_query_instruct=True,  # Whether to enable instructions
         shuffle_cand=True,  # Whether to shuffle the candidates
@@ -126,7 +125,7 @@ class MBEIRMainDataset(MBEIRDatasetBase):
         returns=None,  # Catch any return-related settings
         print_config=True,  # Whether to print the dataset config
     ):
-        super().__init__(mbeir_data_dir, img_preprocess_fn)
+        super().__init__(mbeir_data_dir)
 
         self._load_query_data(query_data_path)
         self._load_cand_pool_as_dict(cand_pool_path)
@@ -359,11 +358,10 @@ class MBEIRCandidatePoolDataset(MBEIRDatasetBase):
         self,
         mbeir_data_dir,  # Root directory of the MBEIR dataset
         cand_pool_data_path,  # Relate path to the candidate pool data
-        img_preprocess_fn,
         returns=None,  # Catch any return-related settings
         print_config=True,  # Whether to print the dataset config
     ):
-        super().__init__(mbeir_data_dir, img_preprocess_fn)
+        super().__init__(mbeir_data_dir)
         self._load_cand_pool(cand_pool_data_path)
 
         returns = {} if returns is None else returns
@@ -526,6 +524,134 @@ class MBEIRMainCollator(MBEIRCollatorBase):
         return processed_batch
 
 
+class MBEIRMLLMEVALCollator(MBEIRCollatorBase):
+    def __init__(self, processor, image_size):
+        super().__init__(processor.tokenizer, image_size)
+        self.processor = processor
+
+    def __call__(self, batch):
+        # Note: I group txt/image from queries and candidates together to form a single tensor.
+        # Allowing for efficient GPU-based processing.
+
+        input_ids_list, attention_mask_list, pixel_values_list, image_sizes_list = [], [], [], []
+
+        index_mapping = {
+            "query": [[] for _ in range(len(batch))],
+        }
+        instance_keys = ["query"]
+
+        # Handle EVAL mode-specific operations
+        qid_list, task_id_list = [], []
+        for instance in batch:
+            qid = instance.pop("qid", None)
+            task_id = instance.pop("task_id", None)
+            if qid is not None:
+                qid_list.append(qid)
+            if task_id is not None:
+                task_id_list.append(task_id)
+
+        # Generate Index Mapping
+        txts, imgs = [], []
+        for inst_idx, instance in enumerate(batch):
+            for instance_key in instance_keys:
+                items = [instance[instance_key]] if instance_key != "neg_cand_list" else instance[instance_key]  # list
+                for item in items:
+                    txts.append("<image>\n" + item["txt"])
+                    imgs.append(item["img"])
+        if all([img is None for img in imgs]) or all([img is not None for img in imgs]):
+            if all([img is None for img in imgs]):
+                inputs = self.processor(txts, return_tensors="pt", padding=True)
+                input_ids, attention_mask, pixel_values, image_sizes = inputs["input_ids"], inputs["attention_mask"], imgs, imgs
+            else:
+                inputs = self.processor(txts, imgs, return_tensors="pt", padding=True)
+                input_ids, attention_mask, pixel_values, image_sizes = inputs["input_ids"], inputs["attention_mask"], inputs["pixel_values"], inputs["image_sizes"]
+            counter = 0
+            for inst_idx, instance in enumerate(batch):
+                for instance_key in instance_keys:
+                    items = [instance[instance_key]] if instance_key != "neg_cand_list" else instance[instance_key]  # list
+                    for item in items:
+                        index_mapping[instance_key][inst_idx].append(counter)  # Track current index
+                        counter += 1
+        else:
+            counter = 0
+            for inst_idx, instance in enumerate(batch):
+                for instance_key in instance_keys:
+                    items = [instance[instance_key]] if instance_key != "neg_cand_list" else instance[instance_key]  # list
+                    for item in items:
+                        txt = item["txt"]
+                        img = item["img"]
+
+                        index_mapping[instance_key][inst_idx].append(counter)  # Track current index
+                        counter += 1
+                        if txt is None:
+                            txt = ""
+
+                        if img is not None:
+                            txt = "<image>\n" + txt
+                            inputs = self.processor([txt], [img], return_tensors="pt")
+                            input_ids_list.append(inputs["input_ids"][0])
+                            attention_mask_list.append(inputs["attention_mask"][0])
+                            pixel_values_list.append(inputs["pixel_values"])
+                            image_sizes_list.append(inputs["image_sizes"])
+                        else:
+                            inputs = self.processor([txt], return_tensors="pt")
+                            input_ids_list.append(inputs["input_ids"][0])
+                            attention_mask_list.append(inputs["attention_mask"][0])
+                            pixel_values_list.append(None)
+                            image_sizes_list.append(None)
+
+            if self.processor.tokenizer.padding_side == "left":
+                input_ids_list = [per_input_ids.flip(dims=[0]) for per_input_ids in input_ids_list]
+                attention_mask_list = [per_attention_mask.flip(dims=[0]) for per_attention_mask in attention_mask_list]
+
+                input_ids = pad_sequence(
+                    input_ids_list,
+                    batch_first=True,
+                    padding_value=self.tokenizer.pad_token_id,
+                )
+                attention_mask = pad_sequence(
+                    attention_mask_list,
+                    batch_first=True,
+                    padding_value=0,
+                )
+                input_ids = input_ids[:, :self.processor.tokenizer.model_max_length]
+                attention_mask = attention_mask[:, :self.processor.tokenizer.model_max_length]
+
+                input_ids = input_ids.flip(dims=[1])
+                attention_mask = attention_mask.flip(dims=[1])
+            else:
+                input_ids = pad_sequence(
+                    input_ids_list,
+                    batch_first=True,
+                    padding_value=self.processor.tokenizer.pad_token_id,
+                )
+                attention_mask = pad_sequence(
+                    attention_mask_list,
+                    batch_first=True,
+                    padding_value=0,
+                )
+                input_ids = input_ids[:, :self.processor.tokenizer.model_max_length]
+                attention_mask = attention_mask[:, :self.processor.tokenizer.model_max_length]
+
+            pixel_values = torch.cat(pixel_values_list) if all([pixel_values is not None for pixel_values in pixel_values_list]) else pixel_values_list
+            image_sizes = torch.cat(image_sizes_list) if all([image_sizes is not None for image_sizes in image_sizes_list]) else image_sizes_list
+
+        processed_batch = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "pixel_values": pixel_values,
+            "image_sizes": image_sizes,
+            "index_mapping": index_mapping,
+        }
+
+        if qid_list:
+            processed_batch.update({"qid_list": qid_list})
+        if task_id_list:
+            processed_batch.update({"task_id_list": task_id_list})
+
+        return processed_batch
+
+
 class MBEIRInferenceOnlyCollator(MBEIRCollatorBase):
     def __init__(self, tokenizer: Callable[[List[str]], Any], image_size: tuple):
         super().__init__(tokenizer, image_size)
@@ -607,4 +733,100 @@ class MBEIRCandidatePoolCollator(MBEIRCollatorBase):
         assert bs == processed_batch["image_batched"].size(0)
         assert bs == processed_batch["txt_mask_batched"].size(0)
         assert bs == processed_batch["image_mask_batched"].size(0)
+        return processed_batch
+
+
+class MBEIRMLLMCandidatePoolCollator(MBEIRCollatorBase):
+    def __init__(self, processor, image_size):
+        super().__init__(processor.tokenizer, image_size)
+        self.processor = processor
+
+    def __call__(self, batch):
+        input_ids_list, attention_mask_list, pixel_values_list, image_sizes_list, did_list = [], [], [], [], []
+        # Candidate can be indexed directly from the batch
+        if all([instance["img"] is None for instance in batch]) or all([instance["img"] is not None for instance in batch]):
+            txts = [ "<image>\n" + instance["txt"] for instance in batch]
+            imgs = [instance["img"] for instance in batch]
+            if all([img is not None for img in imgs]):
+                inputs = self.processor(txts, imgs, return_tensors="pt", padding=True)
+                input_ids, attention_mask, pixel_values, image_sizes = inputs["input_ids"], inputs["attention_mask"], inputs["pixel_values"], inputs["image_sizes"]
+            else:
+                inputs = self.processor(txts, return_tensors="pt", padding=True)
+                input_ids, attention_mask, pixel_values, image_sizes = inputs["input_ids"], inputs["attention_mask"], imgs, imgs
+            for instance in batch:
+                did = instance.get("did", None)
+                if did is not None:
+                    did_list.append(did)
+        else:
+            for instance in batch:
+                txt = instance["txt"]
+                img = instance["img"]
+
+                if txt is None:
+                    txt = ""
+
+                if img is not None:
+                    txt = "<image>\n" + txt
+                    inputs = self.processor([txt], [img], return_tensors="pt")
+                    input_ids_list.append(inputs["input_ids"][0])
+                    attention_mask_list.append(inputs["attention_mask"][0])
+                    pixel_values_list.append(inputs["pixel_values"])
+                    image_sizes_list.append(inputs["image_sizes"])
+                else:
+                    inputs = self.processor([txt], return_tensors="pt")
+                    input_ids_list.append(inputs["input_ids"][0])
+                    attention_mask_list.append(inputs["attention_mask"][0])
+                    pixel_values_list.append(None)
+                    image_sizes_list.append(None)
+
+                did = instance.get("did", None)
+                if did is not None:
+                    did_list.append(did)
+
+            if self.processor.tokenizer.padding_side == "left":
+                input_ids_list = [per_input_ids.flip(dims=[0]) for per_input_ids in input_ids_list]
+                attention_mask_list = [per_attention_mask.flip(dims=[0]) for per_attention_mask in attention_mask_list]
+
+                input_ids = pad_sequence(
+                    input_ids_list,
+                    batch_first=True,
+                    padding_value=self.tokenizer.pad_token_id,
+                )
+                attention_mask = pad_sequence(
+                    attention_mask_list,
+                    batch_first=True,
+                    padding_value=0,
+                )
+                input_ids = input_ids[:, :self.processor.tokenizer.model_max_length]
+                attention_mask = attention_mask[:, :self.processor.tokenizer.model_max_length]
+
+                input_ids = input_ids.flip(dims=[1])
+                attention_mask = attention_mask.flip(dims=[1])
+            else:
+                input_ids = pad_sequence(
+                    input_ids_list,
+                    batch_first=True,
+                    padding_value=self.processor.tokenizer.pad_token_id,
+                )
+                attention_mask = pad_sequence(
+                    attention_mask_list,
+                    batch_first=True,
+                    padding_value=0,
+                )
+                input_ids = input_ids[:, :self.processor.tokenizer.model_max_length]
+                attention_mask = attention_mask[:, :self.processor.tokenizer.model_max_length]
+
+            pixel_values = torch.cat(pixel_values_list) if all([pixel_values is not None for pixel_values in pixel_values_list]) else pixel_values_list
+            image_sizes = torch.cat(image_sizes_list) if all([image_sizes is not None for image_sizes in image_sizes_list]) else image_sizes_list
+
+        processed_batch = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "pixel_values": pixel_values,
+            "image_sizes": image_sizes,
+        }
+
+        if did_list:
+            processed_batch.update({"did_list": did_list})
+
         return processed_batch
