@@ -3,7 +3,7 @@ This module generates embeddings for MBEIR with multiple GPUs.
 """
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "4,5"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 import sys
 sys.path.append("/home/wlzhong/project/uniir/src")
 import argparse

@@ -5,6 +5,31 @@
 This repo contains the codebase for the ECCV-2024 paper "[UniIR: Training and Benchmarking Universal Multimodal
 Information Retrievers](https://arxiv.org/pdf/2311.17136.pdf)"
 
+## Running with E5-V
+[Download and Unzip the Data](#m-beir-downloading)
+
+Update the config file by running the following command.
+
+```
+python ./src/common/config_updater.py \
+    --update_mbeir_yaml_instruct_status \
+    --mbeir_yaml_file_path ./src/models/uniir_e5v/configs_scripts/eval/inbatch/embed.yaml \
+    --enable_instruct True
+```
+
+Due to the GPU shortage, I haven't tested the codes for parallelization. The following command provides a sequential version.
+
+```
+python ./src/common/mbeir_embedder_debug.py \
+    --config_path ./src/models/uniir_e5v/configs_scripts/eval/inbatch/embed.yaml \
+    --uniir_dir "path_to_save_embeddings" \
+    --mbeir_data_dir "path_to_downloaded_data"
+```
+
+By running above commands, one can save all embeddings used in the benchmark. Those embeddings will be used to compute retrieval scores by cosine similarity using the `faiss` library. However, the embedding stage is the most time-consuming. Let's use the above commands to get embeddings first. Retrieval scores calculation will be updated later.
+
+If one want to exclude specific datasets in the benchmark, go to `src/models/uniir_e5v/configs_scripts/eval/inbatch/embed.yaml`. Comment out unwanted datasets. Please commend out unwanted datasets in both `cand_pool` and `test_datasets`.
+
 ## 🔔News
 - **🔥[2024-04-13]**: We highlight another valuable and concurrent research on training instruction-following, multi-task multi-modal retrievers with Late-interaction:[PreFLMR: Scaling Up Fine-Grained Late-Interaction Multi-modal Retrievers](https://preflmr.github.io/) , which was done by the researchers of the University of Cambridge. They also introduced the M2KR benchmark which can be used to train and evaluate multi-modal universal information retrievers. We may combine the M2KR and M-BEIR benchmarks together to facilitate the advance of this field.
 - **🔥[2024-03-18]: Release the UniIR(CLIP_SF) large and UniIR(BLIP_FF) large checkpoints [**🤗 Checkpoints**](https://huggingface.co/TIGER-Lab/UniIR)**
