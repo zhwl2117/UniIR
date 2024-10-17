@@ -3,7 +3,7 @@ This module contains the code for indexing and retrieval using FAISS based on th
 """
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "4,5"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 import sys
 sys.path.append("/home/wlzhong/project/uniir/src")
 import argparse
@@ -715,19 +715,19 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="FAISS Pipeline")
     parser.add_argument("--uniir_dir", type=str, default="/data/wlzhong/dataset/mbeir/e5v_embed/")
     parser.add_argument("--mbeir_data_dir", type=str, default="/data/wlzhong/dataset/mbeir/")
-    parser.add_argument("--config_path", default="/home/wlzhong/project/uniir/src/models/uniir_e5v/configs_scripts/eval/inbatch/index.yaml", help="Path to the config file.")
+    parser.add_argument("--config_path", default="src/models/uniir_e5v/configs_scripts/eval/inbatch/retrieval.yaml")
     parser.add_argument(
         "--query_embedder_config_path",
         default="",
         help="Path to the query embedder config file. Used when retrieving candidates with complement modalities in raw_retrieval mode.",
     )
-    parser.add_argument("--enable_create_index", default=True, help="Enable create index")
+    parser.add_argument("--enable_create_index", default=False, help="Enable create index")
     parser.add_argument(
         "--enable_hard_negative_mining",
         action="store_true",
         help="Enable hard negative mining",
     )
-    parser.add_argument("--enable_retrieval", action="store_true", help="Enable retrieval")
+    parser.add_argument("--enable_retrieval", default=True, help="Enable retrieval")
     return parser.parse_args()
 
 
@@ -749,6 +749,8 @@ def main():
         dist_utils.init_distributed_mode(args)
         query_embedder_config.dist_config.gpu_id = args.gpu
         query_embedder_config.dist_config.distributed_mode = args.distributed
+    else:
+        query_embedder_config = None
 
     if args.enable_hard_negative_mining:
         run_hard_negative_mining(config)

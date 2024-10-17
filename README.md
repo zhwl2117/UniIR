@@ -5,6 +5,19 @@
 This repo contains the codebase for the ECCV-2024 paper "[UniIR: Training and Benchmarking Universal Multimodal
 Information Retrievers](https://arxiv.org/pdf/2311.17136.pdf)"
 
+## Current Results
+Note that there are two retrieval pools: (1) The pool from the correponding dataset. For example, MSCOCO results are ranked within the MSCOCO dataset only. (2) The pool is the UNION of all datasets. For example, MSCOCO results are ranked within the entire benchmark of all datasets. Since we skip large datasets at present, the UNION pool is incomplete and the first case is reported for consistency.
+
+The number at the beginning of the dataset is used to indicate the type of the retrieval shown in the oirginal table. For example, 1. MSCOCO indicates the first type of task $q_t \rightarrow c_i$ and 4. MSCOCO indicates $q_i \rightarrow c_t$.
+
+![Data Stats](image.png)
+
+|        | 1. MSCOCO | 4. MSCOCO | 4. Fashion200K | 5. NIGHTS | 8. FashionIQ | 8. CIRR |
+|--------|-----------|-----------|----------------|-----------|--------------|---------|
+| **R1** | 0.444     | 0.3658    | 0.0385         | 0.0448    | 0.0775       | 0.1376  |
+| **R5** | 0.7058    | 0.6474    | 0.0593         | 0.1797    | 0.1066       | 0.335   |
+| **R10**| 0.8007    | 0.7576    | 0.11           | 0.3066    | 0.1573       | 0.4357  | 
+
 ## Running with E5-V
 [Download and Unzip the Data](#m-beir-downloading)
 

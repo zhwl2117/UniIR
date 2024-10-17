@@ -17,7 +17,7 @@ embed_config:
     cand_pools_name_to_embed:
     # - visualnews_task0
     - mscoco_task0_test
-    - fashion200k_task0
+    # - fashion200k_task0
     # - webqa_task1
     # - edis_task2
     # - webqa_task2
@@ -38,7 +38,7 @@ embed_config:
     correspond_cand_pools_name:
     # - visualnews_task0
     - mscoco_task0_test
-    - fashion200k_task0
+    # - fashion200k_task0
     # - webqa_task1
     # - edis_task2
     # - webqa_task2
@@ -55,7 +55,7 @@ embed_config:
     datasets_name:
     # - visualnews_task0
     - mscoco_task0
-    - fashion200k_task0
+    # - fashion200k_task0
     # - webqa_task1
     # - edis_task2
     # - webqa_task2
