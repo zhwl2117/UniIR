@@ -721,13 +721,13 @@ def parse_arguments():
         default="",
         help="Path to the query embedder config file. Used when retrieving candidates with complement modalities in raw_retrieval mode.",
     )
-    parser.add_argument("--enable_create_index", default=False, help="Enable create index")
+    parser.add_argument("--enable_create_index", action="store_true", help="Enable create index")
     parser.add_argument(
         "--enable_hard_negative_mining",
         action="store_true",
         help="Enable hard negative mining",
     )
-    parser.add_argument("--enable_retrieval", default=True, help="Enable retrieval")
+    parser.add_argument("--enable_retrieval", action="store_true", help="Enable retrieval")
     return parser.parse_args()
 
 
