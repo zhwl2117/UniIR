@@ -271,140 +271,140 @@ def generate_embeds_for_config(model, processor, config):
 
     # Generate embeddings
     for split_name, split_dir, dataset_name_list, cand_pool_name_list in splits:
-        # for dataset_name, cand_pool_name in zip(dataset_name_list, cand_pool_name_list):
-        #     if split_name == "cand_pool":
-        #         cand_pool_name = cand_pool_name.lower()
-        #         cand_pool_file_name = f"mbeir_{cand_pool_name}_{split_name}.jsonl"
-        #         cand_pool_data_path = os.path.join(cand_pool_dir, cand_pool_file_name)
+        for dataset_name, cand_pool_name in zip(dataset_name_list, cand_pool_name_list):
+            if split_name == "cand_pool":
+                cand_pool_name = cand_pool_name.lower()
+                cand_pool_file_name = f"mbeir_{cand_pool_name}_{split_name}.jsonl"
+                cand_pool_data_path = os.path.join(cand_pool_dir, cand_pool_file_name)
 
-        #         print_config = False
-        #         if dist_utils.is_main_process():
-        #             print(f"\nEmbedder Log: Generating embeddings for {cand_pool_data_path}...")
-        #             print_config = True
-        #         # TODO: refactor this and use build dataset from Config.
-        #         dataset = MBEIRCandidatePoolDataset(
-        #             mbeir_data_dir=mbeir_data_dir,
-        #             cand_pool_data_path=cand_pool_data_path,
-        #             print_config=print_config,
-        #         )
-        #         collator = MBEIRMLLMCandidatePoolCollator(
-        #             processor=processor,
-        #             image_size=image_size,
-        #         )
-        #     else:  # "train" or "val" or "test"
-        #         # Construct query data path
-        #         dataset_name = dataset_name.lower()
-        #         query_data_name = f"mbeir_{dataset_name}_{split_name}.jsonl"
-        #         query_data_path = os.path.join(split_dir, query_data_name)
+                print_config = False
+                if dist_utils.is_main_process():
+                    print(f"\nEmbedder Log: Generating embeddings for {cand_pool_data_path}...")
+                    print_config = True
+                # TODO: refactor this and use build dataset from Config.
+                dataset = MBEIRCandidatePoolDataset(
+                    mbeir_data_dir=mbeir_data_dir,
+                    cand_pool_data_path=cand_pool_data_path,
+                    print_config=print_config,
+                )
+                collator = MBEIRMLLMCandidatePoolCollator(
+                    processor=processor,
+                    image_size=image_size,
+                )
+            else:  # "train" or "val" or "test"
+                # Construct query data path
+                dataset_name = dataset_name.lower()
+                query_data_name = f"mbeir_{dataset_name}_{split_name}.jsonl"
+                query_data_path = os.path.join(split_dir, query_data_name)
 
-        #         # Construct the candidate pool path
-        #         cand_pool_name = cand_pool_name.lower()
-        #         cand_pool_file_name = f"mbeir_{cand_pool_name}_cand_pool.jsonl"
-        #         cand_pool_data_path = os.path.join(cand_pool_dir, cand_pool_file_name)
+                # Construct the candidate pool path
+                cand_pool_name = cand_pool_name.lower()
+                cand_pool_file_name = f"mbeir_{cand_pool_name}_cand_pool.jsonl"
+                cand_pool_data_path = os.path.join(cand_pool_dir, cand_pool_file_name)
 
-        #         print_config = False
-        #         if dist_utils.is_main_process():
-        #             print(f"\nEmbedder Log: Generating embeddings for {query_data_path} with {cand_pool_data_path}...")
-        #             print_config = True
-        #         mode = Mode.EVAL
-        #         dataset = MBEIRMainDataset(
-        #             mbeir_data_dir=mbeir_data_dir,
-        #             query_data_path=query_data_path,
-        #             cand_pool_path=cand_pool_data_path,
-        #             query_instruct_path=query_instruct_path,
-        #             mode=mode,
-        #             enable_query_instruct=data_config.enable_query_instruct,
-        #             shuffle_cand=data_config.shuffle_cand,
-        #             print_config=print_config,
-        #         )
-        #         collator = MBEIRMLLMEVALCollator(
-        #             processor=processor,
-        #             image_size=image_size,
-        #         )
+                print_config = False
+                if dist_utils.is_main_process():
+                    print(f"\nEmbedder Log: Generating embeddings for {query_data_path} with {cand_pool_data_path}...")
+                    print_config = True
+                mode = Mode.EVAL
+                dataset = MBEIRMainDataset(
+                    mbeir_data_dir=mbeir_data_dir,
+                    query_data_path=query_data_path,
+                    cand_pool_path=cand_pool_data_path,
+                    query_instruct_path=query_instruct_path,
+                    mode=mode,
+                    enable_query_instruct=data_config.enable_query_instruct,
+                    shuffle_cand=data_config.shuffle_cand,
+                    print_config=print_config,
+                )
+                collator = MBEIRMLLMEVALCollator(
+                    processor=processor,
+                    image_size=image_size,
+                )
 
-        #     # Config for data loader
-        #     batch_size = config.dataloader_config.batch_size
-        #     num_workers = config.dataloader_config.num_workers
+            # Config for data loader
+            batch_size = config.dataloader_config.batch_size
+            num_workers = config.dataloader_config.num_workers
 
-        #     # Set up distributed data parallel
-        #     num_tasks = dist_utils.get_world_size()
-        #     global_rank = dist_utils.get_rank()
-        #     sampler = ContiguousDistributedSampler(
-        #         dataset,
-        #         num_replicas=num_tasks,
-        #         rank=global_rank,
-        #     )  # Note: assume the dataset is in sorted order.
-        #     data_loader = DataLoader(
-        #         dataset,
-        #         batch_size=batch_size,
-        #         num_workers=num_workers,
-        #         pin_memory=True,
-        #         sampler=sampler,
-        #         shuffle=False,  # Since we have distributed sampler, we don't need to shuffle the data here.
-        #         collate_fn=collator,
-        #         drop_last=False,
-        #     )
-        #     if dist.is_initialized():
-        #         dist.barrier()  # Wait for rank 0 to finish saving the embeddings and ids.
-        #     if dist_utils.is_main_process():
-        #         if split_name == "cand_pool":
-        #             print(f"Embedder Log: Data loader for {cand_pool_data_path} is set up.")
-        #             print(f"Embedder Log: Generating embeddings for {cand_pool_data_path}...")
-        #         else:
-        #             print(
-        #                 f"Embedder Log: Data loader for {query_data_path} with candidate pool {cand_pool_data_path} is set up."
-        #             )
-        #             print(f"Embedder Log: Generating embeddings for {query_data_path} ...")
-        #         print(f"Inference with half precision: {config.embed_config.use_fp16}")
+            # Set up distributed data parallel
+            num_tasks = dist_utils.get_world_size()
+            global_rank = dist_utils.get_rank()
+            sampler = ContiguousDistributedSampler(
+                dataset,
+                num_replicas=num_tasks,
+                rank=global_rank,
+            )  # Note: assume the dataset is in sorted order.
+            data_loader = DataLoader(
+                dataset,
+                batch_size=batch_size,
+                num_workers=num_workers,
+                pin_memory=True,
+                sampler=sampler,
+                shuffle=False,  # Since we have distributed sampler, we don't need to shuffle the data here.
+                collate_fn=collator,
+                drop_last=False,
+            )
+            if dist.is_initialized():
+                dist.barrier()  # Wait for rank 0 to finish saving the embeddings and ids.
+            if dist_utils.is_main_process():
+                if split_name == "cand_pool":
+                    print(f"Embedder Log: Data loader for {cand_pool_data_path} is set up.")
+                    print(f"Embedder Log: Generating embeddings for {cand_pool_data_path}...")
+                else:
+                    print(
+                        f"Embedder Log: Data loader for {query_data_path} with candidate pool {cand_pool_data_path} is set up."
+                    )
+                    print(f"Embedder Log: Generating embeddings for {query_data_path} ...")
+                print(f"Inference with half precision: {config.embed_config.use_fp16}")
 
-        #     # Generate embeddings and ids
-        #     embedding_list, id_list = generate_embeds_and_ids_for_dataset_with_gather(
-        #         model,
-        #         data_loader,
-        #         device="cuda",
-        #         use_fp16=config.embed_config.use_fp16,
-        #     )
+            # Generate embeddings and ids
+            embedding_list, id_list = generate_embeds_and_ids_for_dataset_with_gather(
+                model,
+                data_loader,
+                device="cuda",
+                use_fp16=config.embed_config.use_fp16,
+            )
 
-        #     # Save the embeddings and ids to .npy
-        #     if not dist.is_initialized() or dist.get_rank() == 0:
-        #         print(f"Embedder Log: Embedding list length: {len(embedding_list)}")
-        #         print(f"Embedder Log: ID list length: {len(id_list)}")
+            # Save the embeddings and ids to .npy
+            if not dist.is_initialized() or dist.get_rank() == 0:
+                print(f"Embedder Log: Embedding list length: {len(embedding_list)}")
+                print(f"Embedder Log: ID list length: {len(id_list)}")
 
-        #         mid_name = cand_pool_name if split_name == "cand_pool" else dataset_name
-        #         # Save the embeddings to .npy
-        #         embed_data_name = f"mbeir_{mid_name}_{split_name}_embed.npy"
-        #         embed_path = os.path.join(
-        #             uniir_dir,
-        #             embed_dir_name,
-        #             expt_dir_name,
-        #             split_name,
-        #             embed_data_name,
-        #         )
-        #         os.makedirs(os.path.dirname(embed_path), exist_ok=True)
-        #         np.save(embed_path, embedding_list)
-        #         print(f"Embedder Log: Saved embeddings to {embed_path}.")
+                mid_name = cand_pool_name if split_name == "cand_pool" else dataset_name
+                # Save the embeddings to .npy
+                embed_data_name = f"mbeir_{mid_name}_{split_name}_embed.npy"
+                embed_path = os.path.join(
+                    uniir_dir,
+                    embed_dir_name,
+                    expt_dir_name,
+                    split_name,
+                    embed_data_name,
+                )
+                os.makedirs(os.path.dirname(embed_path), exist_ok=True)
+                np.save(embed_path, embedding_list)
+                print(f"Embedder Log: Saved embeddings to {embed_path}.")
 
-        #         # Save the IDs to .npy
-        #         id_data_name = f"mbeir_{mid_name}_{split_name}_ids.npy"
-        #         id_path = os.path.join(uniir_dir, embed_dir_name, expt_dir_name, split_name, id_data_name)
-        #         os.makedirs(os.path.dirname(id_path), exist_ok=True)
-        #         np.save(id_path, id_list)
-        #         print(f"Embedder Log: Saved ids to {id_path}.")
+                # Save the IDs to .npy
+                id_data_name = f"mbeir_{mid_name}_{split_name}_ids.npy"
+                id_path = os.path.join(uniir_dir, embed_dir_name, expt_dir_name, split_name, id_data_name)
+                os.makedirs(os.path.dirname(id_path), exist_ok=True)
+                np.save(id_path, id_list)
+                print(f"Embedder Log: Saved ids to {id_path}.")
 
-        #     if dist.is_initialized():
-        #         dist.barrier()  # Wait for rank 0 to finish saving the embeddings and ids.
+            if dist.is_initialized():
+                dist.barrier()  # Wait for rank 0 to finish saving the embeddings and ids.
 
-        #     # Delete the embeddings and IDs to free up memory
-        #     del embedding_list
-        #     del id_list
-        #     del data_loader
-        #     del dataset
-        #     del collator
-        #     del sampler
+            # Delete the embeddings and IDs to free up memory
+            del embedding_list
+            del id_list
+            del data_loader
+            del dataset
+            del collator
+            del sampler
 
-        #     # Explicitly call the garbage collector
-        #     gc.collect()
-        #     torch.cuda.empty_cache()
+            # Explicitly call the garbage collector
+            gc.collect()
+            torch.cuda.empty_cache()
 
         # Union pool embeddings
         if split_name == "cand_pool" and embed_cand_pool_config.embed_union_pool:
