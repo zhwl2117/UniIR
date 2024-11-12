@@ -39,7 +39,41 @@ python ./src/common/mbeir_embedder_debug.py \
     --mbeir_data_dir "path_to_downloaded_data"
 ```
 
-By running above commands, one can save all embeddings used in the benchmark. Those embeddings will be used to compute retrieval scores by cosine similarity using the `faiss` library. However, the embedding stage is the most time-consuming. Let's use the above commands to get embeddings first. Retrieval scores calculation will be updated later.
+By running above commands, one can save all embeddings used in the benchmark. Those embeddings will be used to compute retrieval scores by cosine similarity using the `faiss` library. However, the embedding stage is the most time-consuming. Let's use the above commands to get embeddings first.
+
+After we obtain embeddings for different datasets, we can use faiss to compute retrieval scores. First, we will need to install the `faiss` package. It is recommended to create a new environment to install the `faiss`  because it may be incompatible with other packages. To install `faiss`, follow instructions [below](#evaluation). Once the environment is installed, activate the environment to run following commands.
+
+```
+python ./src/common/config_updater.py \
+    --update_mbeir_yaml_instruct_status \
+    --mbeir_yaml_file_path ./src/models/uniir_e5v/configs_scripts/eval/inbatch/index.yaml \
+    --enable_instruct True
+```
+
+```
+python ./src/common/mbeir_retriever.py \
+    --config_path ./src/models/uniir_e5v/configs_scripts/eval/inbatch/index.yaml \
+    --uniir_dir "path_of_saved_embeddings_above" \
+    --mbeir_data_dir "path_to_downloaded_data" \
+    --enable_create_index
+```
+
+Once above commands run successfully, we create indexes for different samples. Next, we run the final commands to calculate scores. The following commands also require the `faiss` environment.
+
+```
+python ./src/common/config_updater.py \
+    --update_mbeir_yaml_instruct_status \
+    --mbeir_yaml_file_path ./src/models/uniir_e5v/configs_scripts/eval/inbatch/retrieval.yaml \
+    --enable_instruct True
+```
+
+```
+python ./src/common/mbeir_retriever.py \
+    --config_path ./src/models/uniir_e5v/configs_scripts/eval/inbatch/retrieval.yaml \
+    --uniir_dir "path_of_saved_embeddings_above" \
+    --mbeir_data_dir "path_to_downloaded_data" \
+    --enable_retrieval
+```
 
 If one want to exclude specific datasets in the benchmark, go to `src/models/uniir_e5v/configs_scripts/eval/inbatch/embed.yaml`. Comment out unwanted datasets. Please commend out unwanted datasets in both `cand_pool` and `test_datasets`.
 
