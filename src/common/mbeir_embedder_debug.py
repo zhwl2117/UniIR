@@ -32,6 +32,7 @@ from data.mbeir_dataset import (
     Mode,
 )
 from transformers import LlavaNextForConditionalGeneration, LlavaNextProcessor
+from models.phi3_utils import load_pretrained_model, get_model_name_from_path
 from tqdm import tqdm
 
 
@@ -59,25 +60,27 @@ def generate_embeds_and_ids_for_dataset_with_gather(model, data_loader, device, 
         with autocast(enabled=use_fp16):
             ids_list_batched = batch.get("did_list") or batch.get("qid_list")
             if not isinstance(batch["pixel_values"], list):
-                embeddings_batched = model(input_ids=batch["input_ids"].to(device), attention_mask=batch["attention_mask"].to(device), pixel_values=batch["pixel_values"].to(device), image_sizes=batch["image_sizes"].to(device), 
-                    output_hidden_states=True, return_dict=True).hidden_states[-1][:, -1, :]
-                embeddings_batched = F.normalize(embeddings_batched, dim=-1)
+                image_sizes = batch.get("image_sizes")
+                if image_sizes is not None and all([image_size is not None for image_size in image_sizes]):
+                    image_sizes = image_sizes.to(device)
+                embeddings_batched = model.encode(input_ids=batch["input_ids"].to(device), attention_mask=batch["attention_mask"].to(device), pixel_values=batch["pixel_values"].to(device), image_sizes=image_sizes, output_hidden_states=True, return_dict=True)
             elif all([per_pixel_values is None for per_pixel_values in batch["pixel_values"]]):
-                embeddings_batched = model(input_ids=batch["input_ids"].to(device), attention_mask=batch["attention_mask"].to(device), pixel_values=None, image_sizes=None, 
-                    output_hidden_states=True, return_dict=True).hidden_states[-1][:, -1, :]
-                embeddings_batched = F.normalize(embeddings_batched, dim=-1)
+                embeddings_batched = model.encode(input_ids=batch["input_ids"].to(device), attention_mask=batch["attention_mask"].to(device), pixel_values=None, image_sizes=None, output_hidden_states=True, return_dict=True)
             else:
+                image_sizes = batch.get("image_sizes")
                 embeddings_batched = []
                 for i in range(len(batch["pixel_values"])):
                     sample_input_ids = batch["input_ids"][i].unsqueeze(0)
                     sample_attention_mask = batch["attention_mask"][i].unsqueeze(0)
                     sample_pixel_values = batch["pixel_values"][i]
-                    sample_image_sizes = batch["image_sizes"][i]
-                    sample_embedding = model(input_ids=sample_input_ids.to(device), attention_mask=sample_attention_mask.to(device), pixel_values=sample_pixel_values.to(device), image_sizes=sample_image_sizes.to(device), 
-                    output_hidden_states=True, return_dict=True).hidden_states[-1][:, -1, :]
+                    sample_image_sizes = image_sizes[i]
+                    if sample_image_sizes is not None:
+                        sample_image_sizes = sample_image_sizes.to(device)
+                    else:
+                        sample_image_sizes = None
+                    sample_embedding = model.encode(input_ids=sample_input_ids.to(device), attention_mask=sample_attention_mask.to(device), pixel_values=sample_pixel_values.to(device), image_sizes=sample_image_sizes, output_hidden_states=True, return_dict=True)
                     embeddings_batched.append(sample_embedding)
                 embeddings_batched = torch.cat(embeddings_batched, dim=0)
-                embeddings_batched = F.normalize(embeddings_batched, dim=-1)
 
         embedding_tensors.append(embeddings_batched.half())  # We only save FP16 embeddings to save space.
         id_list.extend(ids_list_batched)
@@ -484,14 +487,16 @@ def generate_embeds_for_config(model, processor, config):
                 dist.barrier()  # Wait for rank 0 to finish saving the embeddings and ids.
 
 
-def main(config):
+def main(config, args):
     # Set up seed for reproducibility
     seed = config.seed + dist_utils.get_rank()
     set_seed(seed)
 
     # Initialize and load model
-    processor = LlavaNextProcessor.from_pretrained('royokong/e5-v')
-    model = LlavaNextForConditionalGeneration.from_pretrained('royokong/e5-v', torch_dtype=torch.float16).cuda()
+    model_name = get_model_name_from_path(args.model_path)
+    processor, model, _, _ = load_pretrained_model(
+        args.model_path, args.model_base, model_name, pretrained_path=args.pretrained_path, img_size=args.img_size, use_flash_attn=False
+    )
     model.eval()
 
     # Enable distributed data parallel
@@ -513,6 +518,10 @@ def parse_arguments():
     parser.add_argument("--uniir_dir", type=str, default="/data/wlzhong/dataset/mbeir/e5v_embed/")
     parser.add_argument("--mbeir_data_dir", type=str, default="/data/wlzhong/dataset/mbeir/")
     parser.add_argument("--config_path", default="/home/wlzhong/project/uniir/src/models/uniir_e5v/configs_scripts/eval/inbatch/embed.yaml", help="Path to the config file.")
+    parser.add_argument("--model_path", type=str, default="/home/wlzhong/project/representation_instruct_tune/checkpoints/fromage_llava_phi35_lora_internvl_llava_pretrain_only")
+    parser.add_argument("--model_base", type=str, default="/home/wlzhong/project/xtuner/models/llava_phi35_hf_full"),
+    parser.add_argument("--pretrained_path", type=str, default="/home/wlzhong/project/representation_instruct_tune/checkpoints/fromage_llava_phi35_lora_llava_pretrain_merged")
+    parser.add_argument("--img_size", type=int, default=224)
     return parser.parse_args()
 
 
@@ -524,7 +533,7 @@ if __name__ == "__main__":
     config.uniir_dir = args.uniir_dir
     config.mbeir_data_dir = args.mbeir_data_dir
 
-    main(config)
+    main(config, args)
 
     # Destroy the process group
     if dist.is_initialized() and config.dist_config.distributed_mode:

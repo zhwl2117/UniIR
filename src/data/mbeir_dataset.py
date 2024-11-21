@@ -564,7 +564,8 @@ class MBEIRMLLMEVALCollator(MBEIRCollatorBase):
                 input_ids, attention_mask, pixel_values, image_sizes = inputs["input_ids"], inputs["attention_mask"], imgs, imgs
             else:
                 inputs = self.processor(txts, imgs, return_tensors="pt", padding=True)
-                input_ids, attention_mask, pixel_values, image_sizes = inputs["input_ids"], inputs["attention_mask"], inputs["pixel_values"], inputs["image_sizes"]
+                input_ids, attention_mask, pixel_values = inputs["input_ids"], inputs["attention_mask"], inputs["pixel_values"]
+                image_sizes = inputs.get("image_sizes")
             counter = 0
             for inst_idx, instance in enumerate(batch):
                 for instance_key in instance_keys:
@@ -592,7 +593,7 @@ class MBEIRMLLMEVALCollator(MBEIRCollatorBase):
                             input_ids_list.append(inputs["input_ids"][0])
                             attention_mask_list.append(inputs["attention_mask"][0])
                             pixel_values_list.append(inputs["pixel_values"])
-                            image_sizes_list.append(inputs["image_sizes"])
+                            image_sizes_list.append(inputs.get("image_sizes"))
                         else:
                             inputs = self.processor([txt], return_tensors="pt")
                             input_ids_list.append(inputs["input_ids"][0])
@@ -749,7 +750,8 @@ class MBEIRMLLMCandidatePoolCollator(MBEIRCollatorBase):
             imgs = [instance["img"] for instance in batch]
             if all([img is not None for img in imgs]):
                 inputs = self.processor(txts, imgs, return_tensors="pt", padding=True)
-                input_ids, attention_mask, pixel_values, image_sizes = inputs["input_ids"], inputs["attention_mask"], inputs["pixel_values"], inputs["image_sizes"]
+                input_ids, attention_mask, pixel_values = inputs["input_ids"], inputs["attention_mask"], inputs["pixel_values"]
+                image_sizes = inputs.get("image_sizes")
             else:
                 inputs = self.processor(txts, return_tensors="pt", padding=True)
                 input_ids, attention_mask, pixel_values, image_sizes = inputs["input_ids"], inputs["attention_mask"], imgs, imgs
@@ -771,7 +773,7 @@ class MBEIRMLLMCandidatePoolCollator(MBEIRCollatorBase):
                     input_ids_list.append(inputs["input_ids"][0])
                     attention_mask_list.append(inputs["attention_mask"][0])
                     pixel_values_list.append(inputs["pixel_values"])
-                    image_sizes_list.append(inputs["image_sizes"])
+                    image_sizes_list.append(inputs.get("image_sizes"))
                 else:
                     inputs = self.processor([txt], return_tensors="pt")
                     input_ids_list.append(inputs["input_ids"][0])

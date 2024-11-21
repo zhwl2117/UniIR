@@ -5,28 +5,43 @@
 This repo contains the codebase for the ECCV-2024 paper "[UniIR: Training and Benchmarking Universal Multimodal
 Information Retrievers](https://arxiv.org/pdf/2311.17136.pdf)"
 
-## Current Results
 Note that there are two retrieval pools: (1) The pool from the correponding dataset. For example, MSCOCO results are ranked within the MSCOCO dataset only. (2) The pool is the UNION of all datasets. For example, MSCOCO results are ranked within the entire benchmark of all datasets. Since we skip large datasets at present, the UNION pool is incomplete and the first case is reported for consistency.
 
 The number at the beginning of the dataset is used to indicate the type of the retrieval shown in the oirginal table. For example, 1. MSCOCO indicates the first type of task $q_t \rightarrow c_i$ and 4. MSCOCO indicates $q_i \rightarrow c_t$.
 
-![Data Stats](image.png)
+<!-- ![Data Stats](image.png)
 
 |        | 1. MSCOCO | 4. MSCOCO | 4. Fashion200K | 5. NIGHTS | 8. FashionIQ | 8. CIRR |
 |--------|-----------|-----------|----------------|-----------|--------------|---------|
 | **R1** | 0.444     | 0.3658    | 0.0385         | 0.0448    | 0.0775       | 0.1376  |
 | **R5** | 0.7058    | 0.6474    | 0.0593         | 0.1797    | 0.1066       | 0.335   |
-| **R10**| 0.8007    | 0.7576    | 0.11           | 0.3066    | 0.1573       | 0.4357  | 
+| **R10**| 0.8007    | 0.7576    | 0.11           | 0.3066    | 0.1573       | 0.4357  |  -->
 
-## Running with E5-V
+## Update Nov 20, 2024
+
+We have trained a new model using codes from `xtuner/llava-phi-3-mini-hf`, which LLaVA variant using Phi-3.5-mini as the backbone. I will upload the training details of this model in another private repo shortly. 
+
+The current model is trained with two stages mentioned in our slides. The first stage of training uses LLaVA-Pretrain pair data while the second stage of training uses InternVL VQA data. The image and question are encoded into one embedding while the answer is encoded into another embedding. Both are contrasted to update the model. However, following previous evaluation, I found results are not as good as E5-V. Maybe we should try to train the model with image-text pairs first before VQA data. 
+
+## Running with LLaVA-Phi-3.5-Mini
 [Download and Unzip the Data](#m-beir-downloading)
 
 Update the config file by running the following command.
 
+Note that the codes have been overridden to run our model LLaVA-Phi-3.5-Mini.
+
+To run the following codes, you need the trained model checkpoint. I will update the checkpoint on a [cloud drive](https://drive.google.com/drive/folders/1xgiZF4ZNhBZ5TwIfcGTQTP0ec7cAFMon?usp=sharing). The drive may need access. Please contact me if you find trouble checking the folder.
+
+From the cloud drive, you will obtain four zips that correspond to four required checkpoints below.
+
+- `model_base.zip` contains the folder of the weights of the original MLLM, i.e., LLaVA-Phi-3.5-Mini. We use this model to train the embedding model for uniir just like E5-V uses LlaVA-NeXT. The folder should be placed to `path_to_model_base` below.
+- `pretrained.zip` contains the folder of the model trained in the first stage. The folder should be placed to `path_to_pretrained` below.
+- `finetune.zip` contains the folder of the model initialized with the pretrained with and trained in the second stage. The folder should be placed to `path_to_finetuned` below.
+
 ```
 python ./src/common/config_updater.py \
     --update_mbeir_yaml_instruct_status \
-    --mbeir_yaml_file_path ./src/models/uniir_e5v/configs_scripts/eval/inbatch/embed.yaml \
+    --mbeir_yaml_file_path ./src/models/uniir_phi35/configs_scripts/eval/inbatch/embed.yaml \
     --enable_instruct True
 ```
 
@@ -34,9 +49,12 @@ Due to the GPU shortage, I haven't tested the codes for parallelization. The fol
 
 ```
 python ./src/common/mbeir_embedder_debug.py \
-    --config_path ./src/models/uniir_e5v/configs_scripts/eval/inbatch/embed.yaml \
+    --config_path ./src/models/uniir_phi35/configs_scripts/eval/inbatch/embed.yaml \
     --uniir_dir "path_to_save_embeddings" \
-    --mbeir_data_dir "path_to_downloaded_data"
+    --mbeir_data_dir "path_to_downloaded_data" \
+    --model_base "path_to_model_base" \
+    --pretrained_path "path_to_pretrained" \
+    --model_path "path_to_finetuned"
 ```
 
 By running above commands, one can save all embeddings used in the benchmark. Those embeddings will be used to compute retrieval scores by cosine similarity using the `faiss` library. However, the embedding stage is the most time-consuming. Let's use the above commands to get embeddings first.
@@ -46,13 +64,13 @@ After we obtain embeddings for different datasets, we can use faiss to compute r
 ```
 python ./src/common/config_updater.py \
     --update_mbeir_yaml_instruct_status \
-    --mbeir_yaml_file_path ./src/models/uniir_e5v/configs_scripts/eval/inbatch/index.yaml \
+    --mbeir_yaml_file_path ./src/models/uniir_phi35/configs_scripts/eval/inbatch/index.yaml \
     --enable_instruct True
 ```
 
 ```
 python ./src/common/mbeir_retriever.py \
-    --config_path ./src/models/uniir_e5v/configs_scripts/eval/inbatch/index.yaml \
+    --config_path ./src/models/uniir_phi35/configs_scripts/eval/inbatch/index.yaml \
     --uniir_dir "path_of_saved_embeddings_above" \
     --mbeir_data_dir "path_to_downloaded_data" \
     --enable_create_index
@@ -63,19 +81,43 @@ Once above commands run successfully, we create indexes for different samples. N
 ```
 python ./src/common/config_updater.py \
     --update_mbeir_yaml_instruct_status \
-    --mbeir_yaml_file_path ./src/models/uniir_e5v/configs_scripts/eval/inbatch/retrieval.yaml \
+    --mbeir_yaml_file_path ./src/models/uniir_phi35/configs_scripts/eval/inbatch/retrieval.yaml \
     --enable_instruct True
 ```
 
 ```
 python ./src/common/mbeir_retriever.py \
-    --config_path ./src/models/uniir_e5v/configs_scripts/eval/inbatch/retrieval.yaml \
+    --config_path ./src/models/uniir_phi35/configs_scripts/eval/inbatch/retrieval.yaml \
     --uniir_dir "path_of_saved_embeddings_above" \
     --mbeir_data_dir "path_to_downloaded_data" \
     --enable_retrieval
 ```
 
 If one want to exclude specific datasets in the benchmark, go to `src/models/uniir_e5v/configs_scripts/eval/inbatch/embed.yaml`. Comment out unwanted datasets. Please commend out unwanted datasets in both `cand_pool` and `test_datasets`.
+
+## Current Results
+
+ Latest results will be updated to this [sheet](https://docs.google.com/spreadsheets/d/19jH-F6ka20nJ1m0pV1L5DiRXxZZ4HwQVma60wCXjlCU/edit?usp=sharing).
+
+| Metric | Dataset       | E5-V    | LLAVA-Phi-3 |
+|--------|---------------|---------|-------------|
+| R1     | MSCOCO        | 0.444   | 0.0268      |
+|        | Fashion200K   | 0.0385  | 0.0012      |
+|        | NIGHTS        | 0.0448  | 0.0014      |
+|        | FashionIQ     | 0.0775  | 0.0048      |
+|        | CIRR          | 0.1376  | 0.007       |
+| R5     | MSCOCO        | 0.7058  | 0.0863      |
+|        | Fashion200K   | 0.0593  | 0.0016      |
+|        | NIGHTS        | 0.1797  | 0.0057      |
+|        | FashionIQ     | 0.1066  | 0.0068      |
+|        | CIRR          | 0.335   | 0.0192      |
+| R10    | MSCOCO        | 0.8007  | 0.1306      |
+|        | Fashion200K   | 0.11    | 0.0029      |
+|        | NIGHTS        | 0.3066  | 0.0094      |
+|        | FashionIQ     | 0.1573  | 0.012       |
+|        | CIRR          | 0.4357  | 0.0278      |
+
+Current evaluation codes has been update to the current repo. 
 
 ## 🔔News
 - **🔥[2024-04-13]**: We highlight another valuable and concurrent research on training instruction-following, multi-task multi-modal retrievers with Late-interaction:[PreFLMR: Scaling Up Fine-Grained Late-Interaction Multi-modal Retrievers](https://preflmr.github.io/) , which was done by the researchers of the University of Cambridge. They also introduced the M2KR benchmark which can be used to train and evaluate multi-modal universal information retrievers. We may combine the M2KR and M-BEIR benchmarks together to facilitate the advance of this field.
