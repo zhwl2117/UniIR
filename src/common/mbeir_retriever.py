@@ -3,7 +3,7 @@ This module contains the code for indexing and retrieval using FAISS based on th
 """
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 import sys
 sys.path.append("/home/wlzhong/project/uniir/src")
 import argparse

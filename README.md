@@ -99,23 +99,26 @@ If one want to exclude specific datasets in the benchmark, go to `src/models/uni
 
  Latest results will be updated to this [sheet](https://docs.google.com/spreadsheets/d/19jH-F6ka20nJ1m0pV1L5DiRXxZZ4HwQVma60wCXjlCU/edit?usp=sharing).
 
-| Metric | Dataset       | E5-V    | LLAVA-Phi-3 |
-|--------|---------------|---------|-------------|
-| R1     | MSCOCO        | 0.444   | 0.0268      |
-|        | Fashion200K   | 0.0385  | 0.0012      |
-|        | NIGHTS        | 0.0448  | 0.0014      |
-|        | FashionIQ     | 0.0775  | 0.0048      |
-|        | CIRR          | 0.1376  | 0.007       |
-| R5     | MSCOCO        | 0.7058  | 0.0863      |
-|        | Fashion200K   | 0.0593  | 0.0016      |
-|        | NIGHTS        | 0.1797  | 0.0057      |
-|        | FashionIQ     | 0.1066  | 0.0068      |
-|        | CIRR          | 0.335   | 0.0192      |
-| R10    | MSCOCO        | 0.8007  | 0.1306      |
-|        | Fashion200K   | 0.11    | 0.0029      |
-|        | NIGHTS        | 0.3066  | 0.0094      |
-|        | FashionIQ     | 0.1573  | 0.012       |
-|        | CIRR          | 0.4357  | 0.0278      |
+| Metric | Dataset               | E5-V    | LLAVA-Phi-3 | LLAVA-Phi-3 Stage 1 |
+|--------|-----------------------|---------|-------------|----------------------|
+| R1     | 1. MSCOCO            | 0.444   | 0.0268      | 0.0148               |
+|        | 4. MSCOCO            | 0.3658  | 0           | 0.0002               |
+|        | 4. Fashion200K       | 0.0385  | 0.0012      | 0.0002               |
+|        | 5. NIGHTS            | 0.0448  | 0.0014      | 0                   |
+|        | 8. FashionIQ         | 0.0775  | 0.0048      | 0.0018               |
+|        | 8. CIRR              | 0.1376  | 0.007       | 0.0043               |
+| R5     | 1. MSCOCO            | 0.7058  | 0.0863      | 0.0456               |
+|        | 4. MSCOCO            | 0.6474  | 0.0024      | 0.0014               |
+|        | 4. Fashion200K       | 0.0593  | 0.0016      | 0.0006               |
+|        | 5. NIGHTS            | 0.1797  | 0.0057      | 0                   |
+|        | 8. FashionIQ         | 0.1066  | 0.0068      | 0.0033               |
+|        | 8. CIRR              | 0.335   | 0.0192      | 0.0118               |
+| R10    | 1. MSCOCO            | 0.8007  | 0.1306      | 0.0688               |
+|        | 4. MSCOCO            | 0.7576  | 0.0046      | 0.003                |
+|        | 4. Fashion200K       | 0.11    | 0.0029      | 0.0025               |
+|        | 5. NIGHTS            | 0.3066  | 0.0094      | 0.0005               |
+|        | 8. FashionIQ         | 0.1573  | 0.012       | 0.0057               |
+|        | 8. CIRR              | 0.4357  | 0.0278      | 0.0187               |
 
 Current evaluation codes has been update to the current repo. 
 
