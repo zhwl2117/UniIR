@@ -3,7 +3,7 @@ This module generates embeddings for MBEIR with multiple GPUs.
 """
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "4"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "4"
 import sys
 sys.path.append("/home/wlzhong/project/uniir/src")
 import argparse
@@ -518,9 +518,9 @@ def parse_arguments():
     parser.add_argument("--uniir_dir", type=str, default="/data/wlzhong/dataset/mbeir/e5v_embed/")
     parser.add_argument("--mbeir_data_dir", type=str, default="/data/wlzhong/dataset/mbeir/")
     parser.add_argument("--config_path", default="/home/wlzhong/project/uniir/src/models/uniir_e5v/configs_scripts/eval/inbatch/embed.yaml", help="Path to the config file.")
-    parser.add_argument("--model_path", type=str, default="/home/wlzhong/project/representation_instruct_tune/checkpoints/fromage_llava_phi35_lora_llava_pretrain")
+    parser.add_argument("--model_path", type=str, default="/home/wlzhong/project/representation_instruct_tune/checkpoints/fromage_llava_phi35_lora_internvl_llava_pretrained")
     parser.add_argument("--model_base", type=str, default="/home/wlzhong/project/xtuner/models/llava_phi35_hf_full"),
-    parser.add_argument("--pretrained_path", type=str, default=None)
+    parser.add_argument("--pretrained_path", type=str, default="/home/wlzhong/project/representation_instruct_tune/checkpoints/fromage_llava_phi35_lora_llava_pretrained_merged")
     parser.add_argument("--img_size", type=int, default=224)
     return parser.parse_args()
 

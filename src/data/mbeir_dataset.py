@@ -529,11 +529,35 @@ class MBEIRMLLMEVALCollator(MBEIRCollatorBase):
         super().__init__(processor.tokenizer, image_size)
         self.processor = processor
 
+    def batch_inputs(self, input_ids, attention_mask, pixel_values, image_sizes):
+        input_ids = [per_input_ids.flip(dims=[0]) for per_input_ids in input_ids]
+        attention_mask = [per_attention_mask.flip(dims=[0]) for per_attention_mask in attention_mask]
+
+        input_ids = torch.nn.utils.rnn.pad_sequence(
+            input_ids,
+            batch_first=True,
+            padding_value=self.tokenizer.pad_token_id,
+        )
+        attention_mask = torch.nn.utils.rnn.pad_sequence(
+            attention_mask,
+            batch_first=True,
+            padding_value=0,
+        )
+        input_ids = input_ids[:, :self.tokenizer.model_max_length]
+        attention_mask = attention_mask[:, :self.tokenizer.model_max_length]
+
+        input_ids = input_ids.flip(dims=[1])
+        attention_mask = attention_mask.flip(dims=[1])
+        if all([per_pixel_values is not None for per_pixel_values in pixel_values]):
+            pixel_values = torch.stack(pixel_values)
+        if all([per_image_sizes is not None for per_image_sizes in image_sizes]):
+            image_sizes = torch.stack(image_sizes)
+
+        return input_ids, attention_mask, pixel_values, image_sizes
+
     def __call__(self, batch):
         # Note: I group txt/image from queries and candidates together to form a single tensor.
         # Allowing for efficient GPU-based processing.
-
-        input_ids_list, attention_mask_list, pixel_values_list, image_sizes_list = [], [], [], []
 
         index_mapping = {
             "query": [[] for _ in range(len(batch))],
@@ -556,16 +580,52 @@ class MBEIRMLLMEVALCollator(MBEIRCollatorBase):
             for instance_key in instance_keys:
                 items = [instance[instance_key]] if instance_key != "neg_cand_list" else instance[instance_key]  # list
                 for item in items:
-                    txts.append("<image>\n" + item["txt"])
+                    txts.append(item["txt"])
                     imgs.append(item["img"])
         if all([img is None for img in imgs]) or all([img is not None for img in imgs]):
+            input_ids, attention_mask, pixel_values, image_sizes = [], [], [], []
             if all([img is None for img in imgs]):
-                inputs = self.processor(txts, return_tensors="pt", padding=True)
-                input_ids, attention_mask, pixel_values, image_sizes = inputs["input_ids"], inputs["attention_mask"], imgs, imgs
+                chat_template_wo_image = "<|user|>\n{}<|end|><|assistant|>\n \n"
+                for txt in txts:
+                    conversation = chat_template_wo_image.format(txt)
+                    conversations = [conversation]
+
+                    inputs = self.processor.tokenizer(conversations, return_tensors="pt", padding="longest", max_length=self.processor.tokenizer.model_max_length, truncation=True)
+                    sample_input_ids = inputs["input_ids"]
+                    sample_pixel_values = inputs.get("pixel_values")
+                    sample_image_sizes = inputs.get("image_sizes")
+                    if sample_input_ids[0, -1] != self.processor.tokenizer.eos_token_id:
+                        sample_input_ids = torch.cat([sample_input_ids, torch.tensor([[self.processor.tokenizer.eos_token_id]])], dim=-1).contiguous()
+                    sample_attention_mask = torch.ones_like(sample_input_ids)
+
+                    input_ids.append(sample_input_ids[0])
+                    attention_mask.append(sample_attention_mask[0])
+                    pixel_values.append(sample_pixel_values[0] if sample_pixel_values is not None else None)
+                    image_sizes.append(sample_image_sizes[0] if sample_image_sizes is not None else None)
+                input_ids, attention_mask, pixel_values, image_sizes = self.batch_inputs(input_ids, attention_mask, pixel_values, image_sizes)
             else:
-                inputs = self.processor(txts, imgs, return_tensors="pt", padding=True)
-                input_ids, attention_mask, pixel_values = inputs["input_ids"], inputs["attention_mask"], inputs["pixel_values"]
-                image_sizes = inputs.get("image_sizes")
+                for txt, img in zip(txts, imgs):
+                    image_token = "<image>"
+                    prompt_message = {
+                        'role': 'user',
+                        'content': f'{image_token}\n{txt}',
+                    }
+                    prompt = self.processor.tokenizer.apply_chat_template(
+                        [prompt_message], tokenize=False, add_generation_prompt=True
+                    )
+                    prompt = prompt[3:]  # remove the additional <s> token
+                    inputs = self.processor(prompt, [img], return_tensors="pt", padding="longest", max_length=self.processor.tokenizer.model_max_length, truncation=True)
+                    sample_input_ids = inputs['input_ids']
+                    sample_pixel_values = inputs["pixel_values"]
+                    sample_image_sizes = inputs.get("image_sizes")
+                    if sample_input_ids[0, -1] != self.processor.tokenizer.eos_token_id:
+                        sample_input_ids = torch.cat([sample_input_ids, torch.tensor([[self.processor.tokenizer.eos_token_id]])], dim=-1).contiguous()
+                    sample_attention_mask = torch.ones_like(sample_input_ids)
+                    input_ids.append(sample_input_ids[0])
+                    attention_mask.append(sample_attention_mask[0])
+                    pixel_values.append(sample_pixel_values[0] if sample_pixel_values is not None else None)
+                    image_sizes.append(sample_image_sizes[0] if sample_image_sizes is not None else None)
+                input_ids, attention_mask, pixel_values, image_sizes = self.batch_inputs(input_ids, attention_mask, pixel_values, image_sizes)
             counter = 0
             for inst_idx, instance in enumerate(batch):
                 for instance_key in instance_keys:
@@ -575,6 +635,7 @@ class MBEIRMLLMEVALCollator(MBEIRCollatorBase):
                         counter += 1
         else:
             counter = 0
+            input_ids, attention_mask, pixel_values, image_sizes = [], [], [], []
             for inst_idx, instance in enumerate(batch):
                 for instance_key in instance_keys:
                     items = [instance[instance_key]] if instance_key != "neg_cand_list" else instance[instance_key]  # list
@@ -588,54 +649,44 @@ class MBEIRMLLMEVALCollator(MBEIRCollatorBase):
                             txt = ""
 
                         if img is not None:
-                            txt = "<image>\n" + txt
-                            inputs = self.processor([txt], [img], return_tensors="pt")
-                            input_ids_list.append(inputs["input_ids"][0])
-                            attention_mask_list.append(inputs["attention_mask"][0])
-                            pixel_values_list.append(inputs["pixel_values"])
-                            image_sizes_list.append(inputs.get("image_sizes"))
+                            image_token = "<image>"
+                            prompt_message = {
+                                'role': 'user',
+                                'content': f'{image_token}\n{txt}',
+                            }
+                            prompt = self.processor.tokenizer.apply_chat_template(
+                                [prompt_message], tokenize=False, add_generation_prompt=True
+                            )
+                            prompt = prompt[3:]  # remove the additional <s> token
+                            inputs = self.processor(prompt, [img], return_tensors="pt", padding="longest", max_length=self.processor.tokenizer.model_max_length, truncation=True)
+                            sample_input_ids = inputs['input_ids']
+                            sample_pixel_values = inputs["pixel_values"]
+                            sample_image_sizes = inputs.get("image_sizes")
+                            if sample_input_ids[0, -1] != self.processor.tokenizer.eos_token_id:
+                                sample_input_ids = torch.cat([sample_input_ids, torch.tensor([[self.processor.tokenizer.eos_token_id]])], dim=-1).contiguous()
+                            sample_attention_mask = torch.ones_like(sample_input_ids)
+                            input_ids.append(sample_input_ids[0])
+                            attention_mask.append(sample_attention_mask[0])
+                            pixel_values.append(sample_pixel_values[0] if sample_pixel_values is not None else None)
+                            image_sizes.append(sample_image_sizes[0] if sample_image_sizes is not None else None)
                         else:
-                            inputs = self.processor([txt], return_tensors="pt")
-                            input_ids_list.append(inputs["input_ids"][0])
-                            attention_mask_list.append(inputs["attention_mask"][0])
-                            pixel_values_list.append(None)
-                            image_sizes_list.append(None)
+                            chat_template_wo_image = "<|user|>\n{}<|end|><|assistant|>\n \n"
+                            conversation = chat_template_wo_image.format(txt)
+                            conversations = [conversation]
 
-            if self.processor.tokenizer.padding_side == "left":
-                input_ids_list = [per_input_ids.flip(dims=[0]) for per_input_ids in input_ids_list]
-                attention_mask_list = [per_attention_mask.flip(dims=[0]) for per_attention_mask in attention_mask_list]
+                            inputs = self.processor.tokenizer(conversations, return_tensors="pt", padding="longest", max_length=self.processor.tokenizer.model_max_length, truncation=True)
+                            sample_input_ids = inputs["input_ids"]
+                            sample_pixel_values = inputs["pixel_values"]
+                            sample_image_sizes = inputs["image_sizes"]
+                            if sample_input_ids[0, -1] != self.processor.tokenizer.eos_token_id:
+                                sample_input_ids = torch.cat([sample_input_ids, torch.tensor([[self.processor.tokenizer.eos_token_id]])], dim=-1).contiguous()
+                            sample_attention_mask = torch.ones_like(sample_input_ids)
 
-                input_ids = pad_sequence(
-                    input_ids_list,
-                    batch_first=True,
-                    padding_value=self.tokenizer.pad_token_id,
-                )
-                attention_mask = pad_sequence(
-                    attention_mask_list,
-                    batch_first=True,
-                    padding_value=0,
-                )
-                input_ids = input_ids[:, :self.processor.tokenizer.model_max_length]
-                attention_mask = attention_mask[:, :self.processor.tokenizer.model_max_length]
-
-                input_ids = input_ids.flip(dims=[1])
-                attention_mask = attention_mask.flip(dims=[1])
-            else:
-                input_ids = pad_sequence(
-                    input_ids_list,
-                    batch_first=True,
-                    padding_value=self.processor.tokenizer.pad_token_id,
-                )
-                attention_mask = pad_sequence(
-                    attention_mask_list,
-                    batch_first=True,
-                    padding_value=0,
-                )
-                input_ids = input_ids[:, :self.processor.tokenizer.model_max_length]
-                attention_mask = attention_mask[:, :self.processor.tokenizer.model_max_length]
-
-            pixel_values = torch.cat(pixel_values_list) if all([pixel_values is not None for pixel_values in pixel_values_list]) else pixel_values_list
-            image_sizes = torch.cat(image_sizes_list) if all([image_sizes is not None for image_sizes in image_sizes_list]) else image_sizes_list
+                            input_ids.append(sample_input_ids[0])
+                            attention_mask.append(sample_attention_mask[0])
+                            pixel_values.append(sample_pixel_values[0] if sample_pixel_values is not None else None)
+                            image_sizes.append(sample_image_sizes[0] if sample_image_sizes is not None else None)
+            input_ids, attention_mask, pixel_values, image_sizes = self.batch_inputs(input_ids, attention_mask, pixel_values, image_sizes)
 
         processed_batch = {
             "input_ids": input_ids,
@@ -742,24 +793,89 @@ class MBEIRMLLMCandidatePoolCollator(MBEIRCollatorBase):
         super().__init__(processor.tokenizer, image_size)
         self.processor = processor
 
+    def batch_inputs(self, input_ids, attention_mask, pixel_values, image_sizes):
+        input_ids = [per_input_ids.flip(dims=[0]) for per_input_ids in input_ids]
+        attention_mask = [per_attention_mask.flip(dims=[0]) for per_attention_mask in attention_mask]
+
+        input_ids = torch.nn.utils.rnn.pad_sequence(
+            input_ids,
+            batch_first=True,
+            padding_value=self.tokenizer.pad_token_id,
+        )
+        attention_mask = torch.nn.utils.rnn.pad_sequence(
+            attention_mask,
+            batch_first=True,
+            padding_value=0,
+        )
+        input_ids = input_ids[:, :self.tokenizer.model_max_length]
+        attention_mask = attention_mask[:, :self.tokenizer.model_max_length]
+
+        input_ids = input_ids.flip(dims=[1])
+        attention_mask = attention_mask.flip(dims=[1])
+        if all([per_pixel_values is not None for per_pixel_values in pixel_values]):
+            pixel_values = torch.stack(pixel_values)
+        if all([per_image_sizes is not None for per_image_sizes in image_sizes]):
+            image_sizes = torch.stack(image_sizes)
+
+        return input_ids, attention_mask, pixel_values, image_sizes
+
     def __call__(self, batch):
-        input_ids_list, attention_mask_list, pixel_values_list, image_sizes_list, did_list = [], [], [], [], []
+        did_list = []
         # Candidate can be indexed directly from the batch
         if all([instance["img"] is None for instance in batch]) or all([instance["img"] is not None for instance in batch]):
-            txts = [ "<image>\n" + instance["txt"] for instance in batch]
+            txts = [instance["txt"] for instance in batch]
             imgs = [instance["img"] for instance in batch]
+            input_ids, attention_mask, pixel_values, image_sizes = [], [], [], []
             if all([img is not None for img in imgs]):
-                inputs = self.processor(txts, imgs, return_tensors="pt", padding=True)
-                input_ids, attention_mask, pixel_values = inputs["input_ids"], inputs["attention_mask"], inputs["pixel_values"]
-                image_sizes = inputs.get("image_sizes")
+                for txt, img in zip(txts, imgs):
+                    image_token = "<image>"
+                    prompt_message = {
+                        'role': 'user',
+                        'content': f'{image_token}\n{txt}',
+                    }
+                    prompt = self.processor.tokenizer.apply_chat_template(
+                        [prompt_message], tokenize=False, add_generation_prompt=True
+                    )
+                    prompt = prompt[3:]  # remove the additional <s> token
+                    inputs = self.processor(prompt, [img], return_tensors="pt", padding="longest", max_length=self.processor.tokenizer.model_max_length, truncation=True)
+                    sample_input_ids = inputs['input_ids']
+                    sample_pixel_values = inputs.get("pixel_values")
+                    sample_image_sizes = inputs.get("image_sizes")
+                    if sample_input_ids[0, -1] != self.processor.tokenizer.eos_token_id:
+                        sample_input_ids = torch.cat([sample_input_ids, torch.tensor([[self.processor.tokenizer.eos_token_id]])], dim=-1).contiguous()
+                    sample_attention_mask = torch.ones_like(sample_input_ids)
+                    input_ids.append(sample_input_ids[0])
+                    attention_mask.append(sample_attention_mask[0])
+                    pixel_values.append(sample_pixel_values[0] if sample_pixel_values is not None else None)
+                    image_sizes.append(sample_image_sizes[0] if sample_image_sizes is not None else None)
+                input_ids, attention_mask, pixel_values, image_sizes = self.batch_inputs(input_ids, attention_mask, pixel_values, image_sizes)
+
             else:
-                inputs = self.processor(txts, return_tensors="pt", padding=True)
-                input_ids, attention_mask, pixel_values, image_sizes = inputs["input_ids"], inputs["attention_mask"], imgs, imgs
+                chat_template_wo_image = "<|user|>\n{}<|end|><|assistant|>\n \n"
+                for txt in txts:
+                    conversation = chat_template_wo_image.format(txt)
+                    conversations = [conversation]
+
+                    inputs = self.processor.tokenizer(conversations, return_tensors="pt", padding="longest", max_length=self.processor.tokenizer.model_max_length, truncation=True)
+                    sample_input_ids = inputs["input_ids"]
+                    sample_pixel_values = inputs.get("pixel_values")
+                    sample_image_sizes = inputs.get("image_sizes")
+                    if sample_input_ids[0, -1] != self.processor.tokenizer.eos_token_id:
+                        sample_input_ids = torch.cat([sample_input_ids, torch.tensor([[self.processor.tokenizer.eos_token_id]])], dim=-1).contiguous()
+                    sample_attention_mask = torch.ones_like(sample_input_ids)
+
+                    input_ids.append(sample_input_ids[0])
+                    attention_mask.append(sample_attention_mask[0])
+                    pixel_values.append(sample_pixel_values[0] if sample_pixel_values is not None else None)
+                    image_sizes.append(sample_image_sizes[0] if sample_image_sizes is not None else None)
+                input_ids, attention_mask, pixel_values, image_sizes = self.batch_inputs(input_ids, attention_mask, pixel_values, image_sizes)
+
             for instance in batch:
                 did = instance.get("did", None)
                 if did is not None:
                     did_list.append(did)
         else:
+            input_ids, attention_mask, pixel_values, image_sizes = [], [], [], []
             for instance in batch:
                 txt = instance["txt"]
                 img = instance["img"]
@@ -768,58 +884,49 @@ class MBEIRMLLMCandidatePoolCollator(MBEIRCollatorBase):
                     txt = ""
 
                 if img is not None:
-                    txt = "<image>\n" + txt
-                    inputs = self.processor([txt], [img], return_tensors="pt")
-                    input_ids_list.append(inputs["input_ids"][0])
-                    attention_mask_list.append(inputs["attention_mask"][0])
-                    pixel_values_list.append(inputs["pixel_values"])
-                    image_sizes_list.append(inputs.get("image_sizes"))
+                    image_token = "<image>"
+                    prompt_message = {
+                        'role': 'user',
+                        'content': f'{image_token}\n{txt}',
+                    }
+                    prompt = self.processor.tokenizer.apply_chat_template(
+                        [prompt_message], tokenize=False, add_generation_prompt=True
+                    )
+                    prompt = prompt[3:]  # remove the additional <s> token
+                    inputs = self.processor(prompt, [img], return_tensors="pt", padding="longest", max_length=self.processor.tokenizer.model_max_length, truncation=True)
+                    sample_input_ids = inputs['input_ids']
+                    sample_pixel_values = inputs.get("pixel_values")
+                    sample_image_sizes = inputs.get("image_sizes")
+                    if sample_input_ids[0, -1] != self.processor.tokenizer.eos_token_id:
+                        sample_input_ids = torch.cat([sample_input_ids, torch.tensor([[self.processor.tokenizer.eos_token_id]])], dim=-1).contiguous()
+                    sample_attention_mask = torch.ones_like(sample_input_ids)
+                    input_ids.append(sample_input_ids[0])
+                    attention_mask.append(sample_attention_mask[0])
+                    pixel_values.append(sample_pixel_values[0] if sample_pixel_values is not None else None)
+                    image_sizes.append(sample_image_sizes[0] if sample_image_sizes is not None else None)
                 else:
-                    inputs = self.processor([txt], return_tensors="pt")
-                    input_ids_list.append(inputs["input_ids"][0])
-                    attention_mask_list.append(inputs["attention_mask"][0])
-                    pixel_values_list.append(None)
-                    image_sizes_list.append(None)
+                    chat_template_wo_image = "<|user|>\n{}<|end|><|assistant|>\n \n"
+                    conversation = chat_template_wo_image.format(txt)
+                    conversations = [conversation]
+
+                    inputs = self.processor.tokenizer(conversations, return_tensors="pt", padding="longest", max_length=self.processor.tokenizer.model_max_length, truncation=True)
+                    sample_input_ids = inputs["input_ids"]
+                    sample_pixel_values = inputs.get("pixel_values")
+                    sample_image_sizes = inputs.get("image_sizes")
+                    if sample_input_ids[0, -1] != self.processor.tokenizer.eos_token_id:
+                        sample_input_ids = torch.cat([sample_input_ids, torch.tensor([[self.processor.tokenizer.eos_token_id]])], dim=-1).contiguous()
+                    sample_attention_mask = torch.ones_like(sample_input_ids)
+
+                    input_ids.append(sample_input_ids[0])
+                    attention_mask.append(sample_attention_mask[0])
+                    pixel_values.append(sample_pixel_values[0] if sample_pixel_values is not None else None)
+                    image_sizes.append(sample_image_sizes[0] if sample_image_sizes is not None else None)
 
                 did = instance.get("did", None)
                 if did is not None:
                     did_list.append(did)
 
-            if self.processor.tokenizer.padding_side == "left":
-                input_ids_list = [per_input_ids.flip(dims=[0]) for per_input_ids in input_ids_list]
-                attention_mask_list = [per_attention_mask.flip(dims=[0]) for per_attention_mask in attention_mask_list]
-
-                input_ids = pad_sequence(
-                    input_ids_list,
-                    batch_first=True,
-                    padding_value=self.tokenizer.pad_token_id,
-                )
-                attention_mask = pad_sequence(
-                    attention_mask_list,
-                    batch_first=True,
-                    padding_value=0,
-                )
-                input_ids = input_ids[:, :self.processor.tokenizer.model_max_length]
-                attention_mask = attention_mask[:, :self.processor.tokenizer.model_max_length]
-
-                input_ids = input_ids.flip(dims=[1])
-                attention_mask = attention_mask.flip(dims=[1])
-            else:
-                input_ids = pad_sequence(
-                    input_ids_list,
-                    batch_first=True,
-                    padding_value=self.processor.tokenizer.pad_token_id,
-                )
-                attention_mask = pad_sequence(
-                    attention_mask_list,
-                    batch_first=True,
-                    padding_value=0,
-                )
-                input_ids = input_ids[:, :self.processor.tokenizer.model_max_length]
-                attention_mask = attention_mask[:, :self.processor.tokenizer.model_max_length]
-
-            pixel_values = torch.cat(pixel_values_list) if all([pixel_values is not None for pixel_values in pixel_values_list]) else pixel_values_list
-            image_sizes = torch.cat(image_sizes_list) if all([image_sizes is not None for image_sizes in image_sizes_list]) else image_sizes_list
+            input_ids, attention_mask, pixel_values, image_sizes = self.batch_inputs(input_ids, attention_mask, pixel_values, image_sizes)
 
         processed_batch = {
             "input_ids": input_ids,
