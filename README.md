@@ -17,6 +17,13 @@ The number at the beginning of the dataset is used to indicate the type of the r
 | **R5** | 0.7058    | 0.6474    | 0.0593         | 0.1797    | 0.1066       | 0.335   |
 | **R10**| 0.8007    | 0.7576    | 0.11           | 0.3066    | 0.1573       | 0.4357  |  -->
 
+## Benchmark Results
+### UniIR in Local Pools
+<img src="images/uniir_results_local.png" alt="UniIR Local" style="width:80%;">
+
+### UniIR in Global Pools
+<img src="images/uniir_results_global.png" alt="UniIR Local" style="width:80%;">
+
 ## Update Nov 20, 2024
 
 We have trained a new model using codes from `xtuner/llava-phi-3-mini-hf`, which LLaVA variant using Phi-3.5-mini as the backbone. I will upload the training details of this model in another private repo shortly. 
@@ -97,7 +104,7 @@ If one want to exclude specific datasets in the benchmark, go to `src/models/uni
 
 ## Current Results
 
- Latest results will be updated to this [sheet](https://docs.google.com/spreadsheets/d/19jH-F6ka20nJ1m0pV1L5DiRXxZZ4HwQVma60wCXjlCU/edit?usp=sharing).
+ Latest results in local pools will be updated to this [sheet](https://docs.google.com/spreadsheets/d/19jH-F6ka20nJ1m0pV1L5DiRXxZZ4HwQVma60wCXjlCU/edit?usp=sharing).
 
 | Metric | Dataset               | E5-V    | LLAVA-Phi-3 Zero-Shot | LLAVA-Phi-3 Two Stages | LLAVA-Phi-3 Stage 1 | LLAVA-Phi-3 Stage 1 NLI |
 |--------|-----------------------|---------|-----------------------|------------------------|---------------------|--------------------------|
