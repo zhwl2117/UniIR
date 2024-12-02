@@ -493,9 +493,9 @@ def main(config, args):
     set_seed(seed)
 
     # Initialize and load model
-    model_name = get_model_name_from_path(args.model_path)
+    model_name = get_model_name_from_path(args.model_base)
     processor, model, _, _ = load_pretrained_model(
-        args.model_path, args.model_base, model_name, pretrained_path=args.pretrained_path, img_size=args.img_size, use_flash_attn=False
+        args.model_base, args.model_base, model_name, pretrained_path=args.pretrained_path, img_size=args.img_size, use_flash_attn=False
     )
     model.eval()
 
